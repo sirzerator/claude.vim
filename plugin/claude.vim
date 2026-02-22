@@ -46,6 +46,10 @@ if !exists('g:claude_map_cancel_response')
   let g:claude_map_cancel_response = '<leader>cx'
 endif
 
+if !exists('g:claude_map_explain')
+  let g:claude_map_explain = '<leader>ce'
+endif
+
 " ============================================================================
 " Keybindings setup
 " ============================================================================
@@ -54,6 +58,10 @@ function! s:SetupClaudeKeybindings()
 
   command! -range -nargs=1 ClaudeImplement <line1>,<line2>call s:ClaudeImplement(<line1>, <line2>, <q-args>)
   execute "vnoremap " . g:claude_map_implement . " :ClaudeImplement<Space>"
+
+  command! -range=% ClaudeExplain <line1>,<line2>call s:ClaudeExplain(<line1>, <line2>)
+  execute "nnoremap " . g:claude_map_explain . " :ClaudeExplain<CR>"
+  execute "vnoremap " . g:claude_map_explain . " :ClaudeExplain<CR>"
 
   command! ClaudeChat call s:OpenClaudeChat()
   execute "nnoremap " . g:claude_map_open_chat . " :ClaudeChat<CR>"
@@ -83,6 +91,10 @@ endif
 " Add this near the top of the file, after other configuration variables
 if !exists('g:claude_implement_prompt')
   let g:claude_implement_prompt = s:ClaudeLoadPrompt('implement')
+endif
+
+if !exists('g:claude_explain_prompt')
+  let g:claude_explain_prompt = s:ClaudeLoadPrompt('explain')
 endif
 
 
@@ -630,6 +642,49 @@ function! s:FinalImplementResponse(line1, line2, bufnr, bufname, winid, instruct
 
   unlet s:implement_response
   unlet! s:current_chat_job
+endfunction
+
+
+
+" ============================================================================
+" ClaudeExplain
+" ============================================================================
+
+function! s:ClaudeExplain(line1, line2) range
+  let l:selected_code = join(getline(a:line1, a:line2), "\n")
+  let l:bufname = bufname('%')
+
+  let l:prompt = "<code>\n" . l:selected_code . "\n</code>\n\n"
+  let l:prompt .= join(g:claude_explain_prompt, "\n")
+
+  let l:messages = [{'role': 'user', 'content': 'Explain this code from ' . l:bufname . ' (lines ' . a:line1 . '-' . a:line2 . ').'}]
+  call s:ClaudeQueryInternal(l:messages, l:prompt, [],
+        \ function('s:StreamingExplainResponse'),
+        \ function('s:FinalExplainResponse', [l:bufname]))
+endfunction
+
+function! s:StreamingExplainResponse(delta)
+  if !exists("s:explain_response")
+    let s:explain_response = ""
+  endif
+  let s:explain_response .= a:delta
+endfunction
+
+function! s:FinalExplainResponse(bufname)
+  let l:response = s:explain_response
+  unlet s:explain_response
+  unlet! s:current_chat_job
+
+  " Open a new scratch buffer with the explanation
+  botright new
+  setlocal buftype=nofile
+  setlocal bufhidden=wipe
+  setlocal noswapfile
+  setlocal filetype=markdown
+  execute 'file Claude\ Explain:\ ' . fnameescape(a:bufname)
+
+  call setline(1, split(l:response, "\n"))
+  normal! gg
 endfunction
 
 
