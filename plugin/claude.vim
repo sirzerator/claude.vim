@@ -653,6 +653,19 @@ endfunction
 function! s:ClaudeExplain(line1, line2) range
   let l:selected_code = join(getline(a:line1, a:line2), "\n")
   let l:bufname = bufname('%')
+  let l:source_winid = win_getid()
+
+  " Open the explain buffer immediately
+  botright new
+  setlocal buftype=nofile
+  setlocal bufhidden=wipe
+  setlocal noswapfile
+  setlocal filetype=markdown
+  execute 'file Claude\ Explain:\ ' . fnameescape(l:bufname)
+  call setline(1, 'Waiting for Claude...')
+  let s:explain_bufnr = bufnr('%')
+
+  call win_gotoid(l:source_winid)
 
   let l:prompt = "<code>\n" . l:selected_code . "\n</code>\n\n"
   let l:prompt .= join(g:claude_explain_prompt, "\n")
@@ -660,31 +673,56 @@ function! s:ClaudeExplain(line1, line2) range
   let l:messages = [{'role': 'user', 'content': 'Explain this code from ' . l:bufname . ' (lines ' . a:line1 . '-' . a:line2 . ').'}]
   call s:ClaudeQueryInternal(l:messages, l:prompt, [],
         \ function('s:StreamingExplainResponse'),
-        \ function('s:FinalExplainResponse', [l:bufname]))
+        \ function('s:FinalExplainResponse'))
 endfunction
 
 function! s:StreamingExplainResponse(delta)
-  if !exists("s:explain_response")
-    let s:explain_response = ""
+  " Silently discard if the explain buffer was closed
+  if !exists('s:explain_bufnr') || !bufexists(s:explain_bufnr)
+    return
   endif
-  let s:explain_response .= a:delta
+
+  let l:winid = bufwinid(s:explain_bufnr)
+  if l:winid == -1
+    return
+  endif
+
+  let l:current_winid = win_getid()
+  call win_gotoid(l:winid)
+
+  " Remove the placeholder on first content
+  if line('$') == 1 && getline(1) ==# 'Waiting for Claude...'
+    call setline(1, '')
+  endif
+
+  let l:new_lines = split(a:delta, "\n", 1)
+  if len(l:new_lines) > 0
+    let l:last_line = getline('$')
+    call setline('$', l:last_line . l:new_lines[0])
+    call append('$', l:new_lines[1:])
+  endif
+
+  normal! G
+  call win_gotoid(l:current_winid)
 endfunction
 
-function! s:FinalExplainResponse(bufname)
-  let l:response = s:explain_response
-  unlet s:explain_response
+function! s:FinalExplainResponse()
+  if exists('s:explain_bufnr')
+    if bufexists(s:explain_bufnr)
+      let l:winid = bufwinid(s:explain_bufnr)
+      if l:winid != -1
+        let l:current_winid = win_getid()
+        call win_gotoid(l:winid)
+        if line('$') == 1 && getline(1) ==# 'Waiting for Claude...'
+          call setline(1, '(No response from Claude)')
+        endif
+        normal! gg
+        call win_gotoid(l:current_winid)
+      endif
+    endif
+    unlet s:explain_bufnr
+  endif
   unlet! s:current_chat_job
-
-  " Open a new scratch buffer with the explanation
-  botright new
-  setlocal buftype=nofile
-  setlocal bufhidden=wipe
-  setlocal noswapfile
-  setlocal filetype=markdown
-  execute 'file Claude\ Explain:\ ' . fnameescape(a:bufname)
-
-  call setline(1, split(l:response, "\n"))
-  normal! gg
 endfunction
 
 
