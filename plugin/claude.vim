@@ -750,6 +750,15 @@ function! s:FinalExplainResponse()
         if line('$') == 1 && getline(1) ==# 'Waiting for Claude...'
           call setline(1, '(No response from Claude)')
         endif
+        " Fold all <thinking> sections using manual folds
+        setlocal foldmethod=manual
+        normal! gg
+        while search('<thinking>', 'Wc') > 0
+          let l:start = line('.')
+          if search('</thinking>', 'W') > 0
+            execute l:start . ',' . line('.') . 'fold'
+          endif
+        endwhile
         normal! gg
         call win_gotoid(l:current_winid)
       endif
