@@ -50,6 +50,36 @@ if !exists('g:claude_map_explain')
   let g:claude_map_explain = '<leader>ce'
 endif
 
+let g:claude_thinking = 0
+let s:spinner_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+let s:spinner_index = 0
+let s:spinner_timer = -1
+
+function! s:SpinnerTick(timer)
+  let s:spinner_index = (s:spinner_index + 1) % len(s:spinner_frames)
+  redrawstatus
+endfunction
+
+function! s:SetClaudeThinking(val)
+  let g:claude_thinking = a:val
+  if a:val
+    let s:spinner_index = 0
+    if s:spinner_timer == -1
+      let s:spinner_timer = timer_start(80, function('s:SpinnerTick'), {'repeat': -1})
+    endif
+  else
+    if s:spinner_timer != -1
+      call timer_stop(s:spinner_timer)
+      let s:spinner_timer = -1
+    endif
+    redrawstatus
+  endif
+endfunction
+
+function! ClaudeThinking()
+  return g:claude_thinking ? 'Claude ' . s:spinner_frames[s:spinner_index] : ''
+endfunction
+
 " ============================================================================
 " Keybindings setup
 " ============================================================================
@@ -596,6 +626,7 @@ function! s:ClaudeImplement(line1, line2, instruction) range
   let l:prompt .= join(g:claude_implement_prompt, "\n")
 
   " Query Claude
+  call s:SetClaudeThinking(1)
   let l:messages = [{'role': 'user', 'content': a:instruction}]
   call s:ClaudeQueryInternal(l:messages, l:prompt, [],
         \ function('s:StreamingImplementResponse'),
@@ -640,6 +671,7 @@ function! s:FinalImplementResponse(line1, line2, bufnr, bufname, winid, instruct
 
   echomsg "Apply diff, see :help diffget. Close diff buffer with :q."
 
+  call s:SetClaudeThinking(0)
   unlet s:implement_response
   unlet! s:current_chat_job
 endfunction
@@ -666,6 +698,8 @@ function! s:ClaudeExplain(line1, line2) range
   let s:explain_bufnr = bufnr('%')
 
   call win_gotoid(l:source_winid)
+
+  call s:SetClaudeThinking(1)
 
   let l:prompt = "<code>\n" . l:selected_code . "\n</code>\n\n"
   let l:prompt .= join(g:claude_explain_prompt, "\n")
@@ -722,6 +756,7 @@ function! s:FinalExplainResponse()
     endif
     unlet s:explain_bufnr
   endif
+  call s:SetClaudeThinking(0)
   unlet! s:current_chat_job
 endfunction
 
@@ -1028,6 +1063,7 @@ function! s:SendChatMessage(prefix)
   call append('$', a:prefix . " ")
   normal! G
 
+  call s:SetClaudeThinking(1)
   let l:job = s:ClaudeQueryInternal(l:messages, l:content_prompt . l:system_prompt, g:claude_tools, function('s:StreamingChatResponse'), function('s:FinalChatResponse'))
 
   " Store the job ID or channel for potential cancellation
@@ -1252,6 +1288,7 @@ function! s:FinalChatResponse()
     call s:CloseCurrentInteractionCodeBlocks()
     call s:PrepareNextInput()
     call win_gotoid(l:current_winid)
+    call s:SetClaudeThinking(0)
     unlet! s:current_chat_job
   endif
 endfunction
@@ -1264,6 +1301,7 @@ function! s:CancelClaudeResponse()
       call ch_close(s:current_chat_job)
     endif
     unlet s:current_chat_job
+    call s:SetClaudeThinking(0)
     call s:AppendResponse("[Response cancelled by user]")
     call s:ClosePreviousFold()
     call s:CloseCurrentInteractionCodeBlocks()
